@@ -1,1 +1,289 @@
-
+<html>
+  <head>
+    <title>Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      #auth {
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+      }
+      #chat {
+        display: none;
+      }
+      .chat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        padding: 10px;
+        background-color: #f0f0f0;
+        border-radius: 5px;
+      }
+      .chat-header h3 {
+        margin: 0;
+      }
+      .leave-btn {
+        padding: 5px 15px;
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .leave-btn:hover {
+        background-color: #c82333;
+      }
+      input {
+        display: block;
+        margin-bottom: 10px;
+        padding: 8px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      li {
+        margin-bottom: 5px;
+        padding: 5px;
+        border-bottom: 1px solid #eee;
+      }
+      .message {
+        color: #333;
+      }
+      .system {
+        color: #666;
+        font-style: italic;
+      }
+      .sender {
+        font-weight: bold;
+        color: #0066cc;
+        margin-right: 10px;
+      }
+      form {
+        display: flex;
+        gap: 10px;
+      }
+      textarea {
+        flex: 1;
+        padding: 8px;
+        resize: vertical;
+      }
+      input[type="submit"] {
+        width: auto;
+        padding: 8px 20px;
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      input[type="submit"]:hover {
+        background-color: #0052a3;
+      }
+      button {
+        padding: 8px 20px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #218838;
+      }
+      .status {
+        font-size: 12px;
+        color: #666;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="auth">
+      <h2>Join the Chat</h2>
+      <input type="text" id="username" placeholder="Enter your name" />
+      <button id="joinBtn">Join Chat</button>
+    </div>
+    
+    <div id="chat">
+      <div class="chat-header">
+        <h3>Chat Room</h3>
+        <button id="leaveBtn" class="leave-btn">Leave Chat</button>
+      </div>
+      <ul id="messages"></ul>
+      <form id="chatbox">
+        <textarea placeholder="Type your message..."></textarea>
+        <input type="submit" value="Send" />
+      </form>
+      <div class="status" id="connectionStatus">Connected</div>
+    </div>
+    
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script>
+      $(function () {
+        var socket = null;
+        var username = null;
+        var token = null;
+        var msgBox = $("#chatbox textarea");
+        var messages = $("#messages");
+        var connectionStatus = $("#connectionStatus");
+        
+        function generateToken(name) {
+          return 'token_' + name + '_' + Date.now();
+        }
+        
+        function updateStatus(text, isError) {
+          connectionStatus.text(text);
+          connectionStatus.css('color', isError ? '#dc3545' : '#28a745');
+        }
+        
+        function connect() {
+          if (!window["WebSocket"]) {
+            alert("Ошибка: ваш браузер не поддерживает WebSocket");
+            return false;
+          }
+          
+          socket = new WebSocket("ws://" + window.location.host + "/room");
+          
+          socket.onopen = function() {
+            updateStatus("Connected", false);
+            var authMsg = {
+              type: "auth",
+              name: username,
+              token: token
+            };
+            socket.send(JSON.stringify(authMsg));
+          };
+          
+          socket.onclose = function() {
+            updateStatus("Disconnected", true);
+            $("#chat").hide();
+            $("#auth").show();
+            socket = null;
+            
+            alert("Вы вышли из чата.");
+          };
+          
+          socket.onerror = function(error) {
+            console.error("WebSocket error:", error);
+            updateStatus("Connection error", true);
+          };
+          
+          socket.onmessage = function(e) {
+            var msg = JSON.parse(e.data);
+            var li = $("<li>");
+            
+            if (msg.type === "message") {
+              li.addClass("message");
+              li.html('<span class="sender">' + escapeHtml(msg.sender) + ':</span> ' + escapeHtml(msg.content));
+            } else if (msg.type === "system") {
+              li.addClass("system");
+              li.text(msg.content);
+            }
+            
+            messages.append(li);
+            messages.scrollTop(messages[0].scrollHeight);
+          };
+          
+          return true;
+        }
+        
+        function leaveChat() {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            var leaveMsg = {
+              type: "leave",
+              name: username
+            };
+            socket.send(JSON.stringify(leaveMsg));
+            
+            socket.close();
+          }
+          
+          $("#chat").hide();
+          $("#auth").show();
+          $("#username").val("");
+          messages.empty();
+          socket = null;
+          username = null;
+          token = null;
+        }
+        
+        function escapeHtml(text) {
+          if (!text) return '';
+          return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+        }
+        
+        $("#joinBtn").click(function() {
+          username = $("#username").val().trim();
+          if (!username) {
+            alert("Please enter a username");
+            return;
+          }
+          
+          token = generateToken(username);
+          
+          if (connect()) {
+            $("#auth").hide();
+            $("#chat").show();
+            msgBox.focus();
+          }
+        });
+        
+        $("#leaveBtn").click(function() {
+          if (confirm("Вы уверены, что хотите выйти?")) {
+            leaveChat();
+          }
+        });
+        
+        $("#username").keypress(function(e) {
+          if (e.which === 13) {
+            $("#joinBtn").click();
+          }
+        });
+        
+        $("#chatbox").submit(function() {
+          if (!msgBox.val()) return false;
+          if (!socket || socket.readyState !== WebSocket.OPEN) {
+            alert("Ошибка: нет соединения с сервером.");
+            return false;
+          }
+          
+          var msg = {
+            type: "message",
+            content: msgBox.val()
+          };
+          socket.send(JSON.stringify(msg));
+          msgBox.val("");
+          return false;
+        });
+        
+        window.addEventListener("beforeunload", function() {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
